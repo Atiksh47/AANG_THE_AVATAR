@@ -19,6 +19,7 @@ Open `index.html` in a browser, allow webcam access, and bend.
 | 🤟 Three fingers | **Firebending** | 5 twisted flame arms shoot upward, fading red → orange → ember sparks |
 | 🖐️ Open palm | **Airbending** | Hourglass-shaped tornado cyclone with 4 fast-spinning spiral arms |
 | 🤏 Pinch | **Avatar State** | All four elements erupt in 8 spiraling arms around a blazing white core |
+| Neutral | **Neutral** | A soft blue-white avatar energy core |
 
 ---
 
