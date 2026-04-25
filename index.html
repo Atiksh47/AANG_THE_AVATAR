@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Avatar: The Last Airbender</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Courier New', sans-serif; }
+
+        #title {
+            position: absolute;
+            top: 2%;
+            width: 100%;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        h1 {
+            font-size: 2.4rem; margin: 0; letter-spacing: 12px;
+            font-weight: 900;
+            background: linear-gradient(to bottom, #fff 40%, #666);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        #element-label {
+            position: absolute;
+            bottom: 3%;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            pointer-events: none;
+            z-index: 30;
+        }
+
+        #element-symbol {
+            font-size: 2.2rem;
+            line-height: 1;
+            display: block;
+            filter: drop-shadow(0 0 12px currentColor);
+        }
+
+        #technique-name {
+            display: block;
+            font-size: 1.0rem;
+            margin-top: 6px;
+            font-weight: bold;
+            letter-spacing: 5px;
+            text-transform: uppercase;
+            transition: color 0.5s ease, text-shadow 0.5s ease;
+            color: #88ccff;
+            text-shadow: 0 0 10px rgba(136, 204, 255, 0.5);
+            white-space: nowrap;
+        }
+
+        #gesture-guide {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            right: 3%;
+            color: rgba(255,255,255,0.45);
+            font-size: 0.65rem;
+            letter-spacing: 2px;
+            line-height: 1.9;
+            text-align: right;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        #gesture-guide span { display: block; }
+
+        #video-container {
+            position: absolute;
+            bottom: 2%;
+            left: 18%;
+            transform: translateX(-50%) scaleX(-1);
+            width: 85vw;
+            max-width: 450px;
+            height: 42vh;
+            border: 2px solid rgba(255,255,255,0.15);
+            z-index: 20;
+            background-color: #000;
+            border-radius: 25px;
+            overflow: hidden;
+            box-shadow: 0 0 40px rgba(0,0,0,0.9);
+            transition: border-color 0.5s ease, box-shadow 0.5s ease;
+        }
+
+        video { width: 100%; height: 100%; object-fit: cover; opacity: 0.75; }
+        #output_canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+
+        #grain {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 5;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.07'/%3E%3C/svg%3E");
+        }
+    </style>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+<div id="grain"></div>
+
+<div id="title">
+    <h1>降神者</h1>
+</div>
+
+<div id="element-label">
+    <span id="element-symbol">🌀</span>
+    <span id="technique-name">AWAITING THE AVATAR</span>
+</div>
+
+<div id="gesture-guide">
+    <span>☝️  INDEX ONLY → EARTH</span>
+    <span>✌️  TWO FINGERS → WATER</span>
+    <span>🤟  THREE FINGERS → FIRE</span>
+    <span>🖐️  OPEN PALM → AIR</span>
+    <span>🤏  PINCH → AVATAR STATE</span>
+</div>
+
+<div id="video-container">
+    <video class="input_video"></video>
+    <canvas id="output_canvas"></canvas>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+// ── Scene ──────────────────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+const cam = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1000);
+cam.position.z = 55;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+document.body.appendChild(renderer.domElement);
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, cam));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 1.5, 0.4, 0.85);
+composer.addPass(bloom);
+
+// ── Particle Buffers ───────────────────────────────────────────────────────
+const COUNT = 20000;
+const geo = new THREE.BufferGeometry();
+const pos  = new Float32Array(COUNT * 3);
+const col  = new Float32Array(COUNT * 3);
+const siz  = new Float32Array(COUNT);
+const tPos = new Float32Array(COUNT * 3);
+const tCol = new Float32Array(COUNT * 3);
+const tSiz = new Float32Array(COUNT);
+
+geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+geo.setAttribute('color',    new THREE.BufferAttribute(col, 3));
+geo.setAttribute('size',     new THREE.BufferAttribute(siz, 1));
+
+const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+    size: 0.3, vertexColors: true,
+    blending: THREE.AdditiveBlending, transparent: true, depthWrite: false
+}));
+scene.add(pts);
+
+// ── Element Particle Shapes ────────────────────────────────────────────────
+
+function getFire(i) {
+    // Core orange-white orb
+    if (i < COUNT * 0.12) {
+        const r = Math.random() * 7;
+        const th = Math.random() * Math.PI * 2, ph = Math.acos(2 * Math.random() - 1);
+        const heat = Math.random();
+        return { x: r*Math.sin(ph)*Math.cos(th), y: r*Math.sin(ph)*Math.sin(th), z: r*Math.cos(ph),
+                 r: 1.0, g: 0.5 + heat*0.5, b: heat*0.1, s: 3.5 };
+    }
+    // Twisting flame arms shooting upward
+    if (i < COUNT * 0.65) {
+        const ARM = 5, arm = i % ARM;
+        const t = (i - COUNT * 0.12) / (COUNT * 0.53);
+        const ht = t * 55 - 8;
+        const spread = Math.pow(t, 0.4) * 22;
+        const angle = arm * (Math.PI * 2 / ARM) + t * 10 + (Math.random() - 0.5) * 0.4;
+        const heat = 1 - t;
+        return {
+            x: spread * Math.cos(angle) + (Math.random() - 0.5) * 4,
+            y: ht + (Math.random() - 0.5) * 3,
+            z: spread * Math.sin(angle) * 0.25 + (Math.random() - 0.5) * 3,
+            r: 1.0, g: heat * 0.75, b: heat * 0.05, s: (1 - t) * 2.5 + 0.3
+        };
+    }
+    // Floating ember sparks
+    const th = Math.random() * Math.PI * 2;
+    const rad = 8 + Math.random() * 38;
+    const ht = (Math.random() - 0.2) * 65;
+    return { x: rad*Math.cos(th)*(1-Math.abs(ht/65)*0.6), y: ht, z: rad*Math.sin(th)*0.18,
+             r: 1.0, g: Math.random() * 0.35, b: 0, s: 0.4 };
+}
+
+function getEarth(i) {
+    // Rocky ground plane
+    if (i < COUNT * 0.28) {
+        return {
+            x: (Math.random() - 0.5) * 110, y: -22 + (Math.random() - 0.5) * 3,
+            z: (Math.random() - 0.5) * 110,
+            r: 0.18 + Math.random()*0.12, g: 0.28 + Math.random()*0.15, b: 0.04,
+            s: 0.65
+        };
+    }
+    // Jagged rock pillars
+    if (i < COUNT * 0.68) {
+        const PILLARS = 7;
+        const which = Math.floor((i - COUNT*0.28) / ((COUNT*0.40) / PILLARS));
+        const angles = [0, 0.90, 1.80, 2.69, 3.59, 4.49, 5.38];
+        const radii  = [16, 23, 19, 27, 14, 21, 18];
+        const angle = angles[which] + (Math.random() - 0.5) * 0.35;
+        const rad   = radii[which];
+        const ht    = Math.random() * 40;
+        return {
+            x: rad*Math.cos(angle) + (Math.random()-0.5)*3.5,
+            y: -22 + ht,
+            z: rad*Math.sin(angle) + (Math.random()-0.5)*3.5,
+            r: 0.12 + Math.random()*0.12,
+            g: 0.32 + Math.random()*0.15,
+            b: 0.04 + Math.random()*0.04,
+            s: 1.3
+        };
+    }
+    // Orbiting boulder debris
+    const th = Math.random() * Math.PI * 2;
+    const rad = 18 + Math.random() * 22;
+    return {
+        x: rad*Math.cos(th), y: -8 + Math.random()*28, z: rad*Math.sin(th),
+        r: 0.22, g: 0.38, b: 0.08, s: Math.random() * 1.8 + 0.4
+    };
+}
+
+function getAir(i) {
+    // Bright wispy core
+    if (i < COUNT * 0.04) {
+        const r = Math.random() * 5;
+        const th = Math.random()*Math.PI*2, ph = Math.acos(2*Math.random()-1);
+        return { x: r*Math.sin(ph)*Math.cos(th), y: r*Math.sin(ph)*Math.sin(th), z: r*Math.cos(ph),
+                 r: 0.9, g: 0.95, b: 1.0, s: 3.0 };
+    }
+    // Tornado cyclone — 4 spiraling arms
+    if (i < COUNT * 0.72) {
+        const ARM = 4, arm = i % ARM;
+        const t = (i - COUNT*0.04) / (COUNT*0.68);
+        const ht = t * 65 - 32;
+        const radius = 3 + (1 - Math.abs(t - 0.5)*2.0) * 28; // hourglass profile
+        const angle = arm * (Math.PI*0.5) + t * 22 + (Math.random()-0.5)*0.3;
+        const br = 0.65 + Math.random()*0.35;
+        return {
+            x: radius*Math.cos(angle) + (Math.random()-0.5)*2.5,
+            y: ht + (Math.random()-0.5)*2,
+            z: radius*Math.sin(angle) + (Math.random()-0.5)*2.5,
+            r: br*0.8, g: br*0.88, b: br,
+            s: 0.7 + Math.random()*0.9
+        };
+    }
+    // Scattered wisps
+    const th = Math.random()*Math.PI*2, rad = 6 + Math.random()*48;
+    return { x: rad*Math.cos(th), y: (Math.random()-0.5)*72, z: rad*Math.sin(th),
+             r: 0.6, g: 0.72, b: 0.85, s: 0.25 };
+}
+
+function getWater(i) {
+    // Bright water-orb core
+    if (i < COUNT * 0.08) {
+        const r = Math.random()*8;
+        const th = Math.random()*Math.PI*2, ph = Math.acos(2*Math.random()-1);
+        return { x: r*Math.sin(ph)*Math.cos(th), y: r*Math.sin(ph)*Math.sin(th), z: r*Math.cos(ph),
+                 r: 0.0, g: 0.65, b: 1.0, s: 3.0 };
+    }
+    // Sinusoidal wave rings spiraling outward
+    if (i < COUNT * 0.65) {
+        const WAVES = 5, wave = i % WAVES;
+        const t = (i - COUNT*0.08) / (COUNT*0.57);
+        const rad = 9 + wave*7;
+        const th = t * Math.PI*2*4;
+        const wht = Math.sin(th*2.5 + wave*1.2) * 9;
+        return {
+            x: rad*Math.cos(th) + (Math.random()-0.5)*2,
+            y: wht + (Math.random()-0.5)*1.5,
+            z: rad*Math.sin(th) + (Math.random()-0.5)*2,
+            r: 0.0, g: 0.38 + Math.random()*0.3, b: 0.8 + Math.random()*0.2,
+            s: 1.3
+        };
+    }
+    // Water spray / droplets
+    const th = Math.random()*Math.PI*2, ph = Math.acos(2*Math.random()-1);
+    const rad = 6 + Math.random()*40;
+    return {
+        x: rad*Math.sin(ph)*Math.cos(th), y: rad*Math.sin(ph)*Math.sin(th)*0.45, z: rad*Math.cos(ph),
+        r: 0.0, g: 0.45 + Math.random()*0.3, b: 0.88, s: 0.35
+    };
+}
+
+function getAvatar(i) {
+    // Blazing white core
+    if (i < COUNT * 0.06) {
+        const r = Math.random()*6;
+        const th = Math.random()*Math.PI*2, ph = Math.acos(2*Math.random()-1);
+        return { x: r*Math.sin(ph)*Math.cos(th), y: r*Math.sin(ph)*Math.sin(th), z: r*Math.cos(ph),
+                 r: 1.0, g: 1.0, b: 1.0, s: 4.5 };
+    }
+    // 8 spiraling arms — 4 elements alternating in pairs
+    const ARM = 8, arm = i % ARM;
+    const t = (i - COUNT*0.06) / (COUNT*0.94);
+    const rad = 4 + t * 48;
+    const angle = arm * (Math.PI*2/ARM) + t * 14;
+    const ht = Math.sin(t*Math.PI*5 + arm*0.8) * 18;
+    const PALETTE = [
+        [1.0, 0.45, 0.0],   // fire
+        [0.75, 0.88, 1.0],  // air
+        [0.0, 0.55, 1.0],   // water
+        [0.18, 0.48, 0.08], // earth
+        [1.0, 0.35, 0.0],   // fire
+        [0.85, 0.92, 1.0],  // air
+        [0.0, 0.65, 0.95],  // water
+        [0.22, 0.5, 0.1],   // earth
+    ];
+    const [r, g, b] = PALETTE[arm];
+    return {
+        x: rad*Math.cos(angle) + (Math.random()-0.5)*3.5,
+        y: ht + (Math.random()-0.5)*3,
+        z: rad*Math.sin(angle)*0.4 + (Math.random()-0.5)*3.5,
+        r, g, b, s: (1 - t*0.4) * 2.2
+    };
+}
+
+// ── Element Config ─────────────────────────────────────────────────────────
+const ELEMENTS = {
+    fire:    { color: '#ff6600', glow: 'rgba(255,100,0,0.5)',   label: 'FIREBENDING',        symbol: '🔥', bloom: 3.0, shake: 0.30, lerp: 0.10 },
+    earth:   { color: '#55bb33', glow: 'rgba(85,187,51,0.4)',   label: 'EARTHBENDING',       symbol: '⛰️', bloom: 1.6, shake: 0.45, lerp: 0.05 },
+    air:     { color: '#c8e8ff', glow: 'rgba(200,232,255,0.4)', label: 'AIRBENDING',         symbol: '🌀', bloom: 2.2, shake: 0.12, lerp: 0.12 },
+    water:   { color: '#0099ff', glow: 'rgba(0,153,255,0.4)',   label: 'WATERBENDING',       symbol: '💧', bloom: 2.5, shake: 0.08, lerp: 0.08 },
+    avatar:  { color: '#ffffff', glow: 'rgba(255,255,255,0.6)', label: 'AVATAR STATE',       symbol: '✨', bloom: 5.0, shake: 0.60, lerp: 0.12 },
+    neutral: { color: '#336688', glow: 'rgba(0,0,0,0)',         label: 'AWAITING THE AVATAR', symbol: '🌀', bloom: 0.8, shake: 0.00, lerp: 0.08 },
+};
+
+// ── State ──────────────────────────────────────────────────────────────────
+let currentTech = 'neutral';
+let lerpSpeed = 0.08;
+let glowColor = ELEMENTS.neutral.color;
+
+const videoEl  = document.querySelector('.input_video');
+const canvasEl = document.getElementById('output_canvas');
+const ctx2d    = canvasEl.getContext('2d');
+const nameEl   = document.getElementById('technique-name');
+const symbEl   = document.getElementById('element-symbol');
+const vidCont  = document.getElementById('video-container');
+
+function updateState(tech) {
+    if (currentTech === tech) return;
+    currentTech = tech;
+
+    const cfg = ELEMENTS[tech];
+    glowColor  = cfg.color;
+    lerpSpeed  = cfg.lerp;
+    bloom.strength = cfg.bloom;
+
+    nameEl.innerText   = cfg.label;
+    nameEl.style.color = cfg.color;
+    nameEl.style.textShadow = `0 0 12px ${cfg.color}aa`;
+    symbEl.innerText   = cfg.symbol;
+    vidCont.style.borderColor  = cfg.color + '55';
+    vidCont.style.boxShadow    = `0 0 40px ${cfg.color}33`;
+
+    for (let i = 0; i < COUNT; i++) {
+        let p;
+        if (tech === 'neutral') {
+            if (i < COUNT * 0.04) {
+                const r = 14 + Math.random()*18;
+                const th = Math.random()*6.28, ph = Math.random()*3.14;
+                p = { x: r*Math.sin(ph)*Math.cos(th), y: r*Math.sin(ph)*Math.sin(th), z: r*Math.cos(ph),
+                      r: 0.06, g: 0.1, b: 0.2, s: 0.35 };
+            } else {
+                p = { x: 0, y: 0, z: 0, r: 0, g: 0, b: 0, s: 0 };
+            }
+        } else if (tech === 'fire')   p = getFire(i);
+        else if (tech === 'earth')    p = getEarth(i);
+        else if (tech === 'air')      p = getAir(i);
+        else if (tech === 'water')    p = getWater(i);
+        else if (tech === 'avatar')   p = getAvatar(i);
+
+        tPos[i*3]   = p.x; tPos[i*3+1] = p.y; tPos[i*3+2] = p.z;
+        tCol[i*3]   = p.r; tCol[i*3+1] = p.g; tCol[i*3+2] = p.b;
+        tSiz[i]     = p.s;
+    }
+}
+
+// ── MediaPipe Hands ────────────────────────────────────────────────────────
+const hands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.72 });
+
+hands.onResults(results => {
+    ctx2d.clearRect(0, 0, canvasEl.width, canvasEl.height);
+    let detected = 'neutral';
+
+    if (results.multiHandLandmarks) {
+        results.multiHandLandmarks.forEach(lm => {
+            drawConnectors(ctx2d, lm, HAND_CONNECTIONS, { color: glowColor, lineWidth: 5 });
+            drawLandmarks(ctx2d, lm, { color: '#fff', lineWidth: 1, radius: 2 });
+
+            const up = (tip, pip) => lm[tip].y < lm[pip].y;
+            const pinch = Math.hypot(lm[8].x - lm[4].x, lm[8].y - lm[4].y);
+
+            if      (pinch < 0.04)                                          detected = 'avatar';
+            else if (up(8,6) && up(12,10) && up(16,14) && up(20,18))       detected = 'air';
+            else if (up(8,6) && up(12,10) && up(16,14) && !up(20,18))      detected = 'fire';
+            else if (up(8,6) && up(12,10) && !up(16,14))                   detected = 'water';
+            else if (up(8,6) && !up(12,10))                                 detected = 'earth';
+        });
+    }
+
+    updateState(detected);
+});
+
+const cameraUtils = new Camera(videoEl, {
+    onFrame: async () => {
+        canvasEl.width  = videoEl.videoWidth;
+        canvasEl.height = videoEl.videoHeight;
+        await hands.send({ image: videoEl });
+    },
+    width: 640, height: 480
+});
+cameraUtils.start();
+
+// ── Animation Loop ─────────────────────────────────────────────────────────
+const cfg = () => ELEMENTS[currentTech];
+
+function animate() {
+    requestAnimationFrame(animate);
+
+    // Screen shake
+    const shake = cfg().shake;
+    renderer.domElement.style.transform = shake > 0
+        ? `translate(${(Math.random()-0.5)*shake*35}px,${(Math.random()-0.5)*shake*35}px)`
+        : 'translate(0,0)';
+
+    // Lerp particles toward targets
+    const sp = lerpSpeed;
+    for (let i = 0; i < COUNT*3; i++) {
+        pos[i] += (tPos[i] - pos[i]) * sp;
+        col[i] += (tCol[i] - col[i]) * 0.1;
+    }
+    for (let i = 0; i < COUNT; i++) siz[i] += (tSiz[i] - siz[i]) * 0.1;
+
+    geo.attributes.position.needsUpdate = true;
+    geo.attributes.color.needsUpdate    = true;
+    geo.attributes.size.needsUpdate     = true;
+
+    // Per-element rotation personality
+    switch (currentTech) {
+        case 'fire':
+            pts.rotation.y += 0.018;
+            pts.rotation.z += 0.004;
+            break;
+        case 'earth':
+            // Heavy, slow — locked upright
+            pts.rotation.set(0, pts.rotation.y + 0.003, 0);
+            break;
+        case 'air':
+            pts.rotation.y += 0.05; // fastest
+            pts.rotation.x += 0.008;
+            break;
+        case 'water':
+            pts.rotation.y += 0.009;
+            pts.rotation.z += 0.004;
+            break;
+        case 'avatar':
+            pts.rotation.y += 0.025;
+            pts.rotation.x += 0.012;
+            pts.rotation.z += 0.018;
+            break;
+        default:
+            pts.rotation.y += 0.004;
+    }
+
+    composer.render();
+}
+animate();
+
+// ── Resize ─────────────────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+    cam.aspect = innerWidth / innerHeight;
+    cam.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+    composer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
